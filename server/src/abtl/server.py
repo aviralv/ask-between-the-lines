@@ -19,7 +19,7 @@ async def health():
 
 
 @app.post("/ask", response_class=PlainTextResponse)
-async def ask(request: AskRequest):
+def ask(request: AskRequest):
     prompt = build_prompt(document=request.document, query=request.query)
     try:
         response = ask_claude(prompt)
