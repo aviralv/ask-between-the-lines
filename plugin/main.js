@@ -23,9 +23,54 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
+
+// trigger.ts
+function findTrigger(editor) {
+  const cursor = editor.getCursor();
+  const line = editor.getLine(cursor.line);
+  const trimmed = line.trimStart();
+  if (!trimmed.startsWith(";;")) {
+    return null;
+  }
+  const query = trimmed.slice(2).trim();
+  if (query.length === 0) {
+    return null;
+  }
+  return {
+    query,
+    lineNumber: cursor.line
+  };
+}
+function getDocumentWithoutTriggerLine(editor, triggerLine) {
+  const totalLines = editor.lineCount();
+  const lines = [];
+  for (let i = 0; i < totalLines; i++) {
+    if (i !== triggerLine) {
+      lines.push(editor.getLine(i));
+    }
+  }
+  return lines.join("\n");
+}
+
+// main.ts
 var AskBetweenTheLines = class extends import_obsidian.Plugin {
   async onload() {
-    console.log("Ask Between the Lines loaded");
+    this.addCommand({
+      id: "ask-inline",
+      name: "Ask inline (send ;; query)",
+      editorCallback: (editor) => {
+        const trigger = findTrigger(editor);
+        if (!trigger) {
+          return;
+        }
+        const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+        console.log("Trigger found:", trigger.query);
+        console.log("Document length:", document.length);
+      },
+      hotkeys: [
+        { modifiers: ["Mod"], key: "Enter" }
+      ]
+    });
   }
   async onunload() {
     console.log("Ask Between the Lines unloaded");
