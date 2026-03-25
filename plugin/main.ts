@@ -30,7 +30,7 @@ export default class AskBetweenTheLines extends Plugin {
       id: "ask-inline",
       name: "Ask inline (send ;; query)",
       editorCallback: (editor) => this.handleAsk(editor),
-      hotkeys: [{ modifiers: ["Mod"], key: "Enter" }],
+      hotkeys: [{ modifiers: ["Shift"], key: "Enter" }],
     });
 
     this.addSettingTab(new AbtlSettingTab(this.app, this));
