@@ -2,4 +2,5 @@
 
 ## Sessions
 
+- [2026-03-25 v0.1.0 Implementation](2026-03-25-v01-implementation.md)
 - [2026-03-25 Project Kickoff](2026-03-25-kickoff.md)
