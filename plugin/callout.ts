@@ -7,8 +7,19 @@ export function replaceLine(editor: Editor, lineNumber: number, text: string): v
   editor.replaceRange(text, from, to);
 }
 
-export function formatThinkingCallout(): string {
-  return "> [!ai] Thinking...";
+export function findThinkingCallout(editor: Editor, query: string): number | null {
+  const marker = formatThinkingCalloutWithQuery(query);
+  const totalLines = editor.lineCount();
+  for (let i = 0; i < totalLines; i++) {
+    if (editor.getLine(i) === marker) {
+      return i;
+    }
+  }
+  return null;
+}
+
+export function formatThinkingCalloutWithQuery(query: string): string {
+  return `> [!ai] Thinking... (${query})`;
 }
 
 export function formatResponseCallout(query: string, response: string): string {

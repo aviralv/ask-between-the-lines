@@ -3,7 +3,8 @@ import { findTrigger, getDocumentWithoutTriggerLine } from "./trigger";
 import { AbtlClient } from "./client";
 import {
   replaceLine,
-  formatThinkingCallout,
+  findThinkingCallout,
+  formatThinkingCalloutWithQuery,
   formatResponseCallout,
   formatErrorCallout,
 } from "./callout";
@@ -50,20 +51,28 @@ export default class AskBetweenTheLines extends Plugin {
 
     const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
 
-    replaceLine(editor, trigger.lineNumber, formatThinkingCallout());
+    replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
 
     const serverReady = await this.client.ensureServer();
     if (!serverReady) {
-      replaceLine(editor, trigger.lineNumber, formatErrorCallout("Server not running"));
+      const thinkingLine = findThinkingCallout(editor, trigger.query);
+      if (thinkingLine !== null) {
+        replaceLine(editor, thinkingLine, formatErrorCallout("Server not running"));
+      }
       return;
     }
 
     const result = await this.client.ask(document, trigger.query);
 
+    const thinkingLine = findThinkingCallout(editor, trigger.query);
+    if (thinkingLine === null) {
+      return;
+    }
+
     if (result.ok) {
-      replaceLine(editor, trigger.lineNumber, formatResponseCallout(trigger.query, result.text));
+      replaceLine(editor, thinkingLine, formatResponseCallout(trigger.query, result.text));
     } else {
-      replaceLine(editor, trigger.lineNumber, formatErrorCallout(result.text));
+      replaceLine(editor, thinkingLine, formatErrorCallout(result.text));
     }
   }
 

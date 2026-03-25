@@ -134,8 +134,18 @@ function replaceLine(editor, lineNumber, text) {
   const to = { line: lineNumber, ch: lineLength };
   editor.replaceRange(text, from, to);
 }
-function formatThinkingCallout() {
-  return "> [!ai] Thinking...";
+function findThinkingCallout(editor, query) {
+  const marker = formatThinkingCalloutWithQuery(query);
+  const totalLines = editor.lineCount();
+  for (let i = 0; i < totalLines; i++) {
+    if (editor.getLine(i) === marker) {
+      return i;
+    }
+  }
+  return null;
+}
+function formatThinkingCalloutWithQuery(query) {
+  return `> [!ai] Thinking... (${query})`;
 }
 function formatResponseCallout(query, response) {
   const responseLines = response.split("\n").map((line) => "> " + line).join("\n");
@@ -177,17 +187,24 @@ var AskBetweenTheLines = class extends import_obsidian2.Plugin {
       return;
     }
     const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
-    replaceLine(editor, trigger.lineNumber, formatThinkingCallout());
+    replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
     const serverReady = await this.client.ensureServer();
     if (!serverReady) {
-      replaceLine(editor, trigger.lineNumber, formatErrorCallout("Server not running"));
+      const thinkingLine2 = findThinkingCallout(editor, trigger.query);
+      if (thinkingLine2 !== null) {
+        replaceLine(editor, thinkingLine2, formatErrorCallout("Server not running"));
+      }
       return;
     }
     const result = await this.client.ask(document, trigger.query);
+    const thinkingLine = findThinkingCallout(editor, trigger.query);
+    if (thinkingLine === null) {
+      return;
+    }
     if (result.ok) {
-      replaceLine(editor, trigger.lineNumber, formatResponseCallout(trigger.query, result.text));
+      replaceLine(editor, thinkingLine, formatResponseCallout(trigger.query, result.text));
     } else {
-      replaceLine(editor, trigger.lineNumber, formatErrorCallout(result.text));
+      replaceLine(editor, thinkingLine, formatErrorCallout(result.text));
     }
   }
   async loadSettings() {
