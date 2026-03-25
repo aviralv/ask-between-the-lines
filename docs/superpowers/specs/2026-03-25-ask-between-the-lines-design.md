@@ -1,7 +1,7 @@
 # Ask Between the Lines — Design Spec
 
 **Date:** 2026-03-25
-**Status:** Draft
+**Status:** Approved
 
 ## Overview
 
@@ -78,12 +78,15 @@ Used by the plugin for auto-start detection.
 
 ### Trigger Flow
 
-1. User types `;;` in a note
-2. User writes their query on the same/next line(s)
-3. User presses `Cmd+Enter` (Mac) / `Ctrl+Enter` (Windows)
-4. Plugin captures everything from `;;` to cursor position as the query
-5. Plugin reads the full document content (excluding the `;;` query line)
-6. Replaces `;;` block with placeholder:
+`;;` must appear at the start of a line (possibly after whitespace). The query is everything on that same line after `;;`. One line, one query — no multi-line queries.
+
+Example: `;; What are the key risks?` — the query is "What are the key risks?"
+
+1. User types `;;` followed by their query on a single line
+2. User presses `Cmd+Enter` (Mac) / `Ctrl+Enter` (Windows)
+3. Plugin extracts the query text (everything after `;;` on that line)
+4. Plugin reads the full document content, excluding the `;;` query line
+5. Replaces the `;;` line with placeholder:
    ```markdown
    > [!ai] Thinking...
    ```
@@ -107,8 +110,8 @@ The plugin does not manage the server lifecycle directly. Instead:
 
 1. On first `;;` of a session, plugin hits `GET /health`
 2. **If healthy** → proceed with the request
-3. **If not reachable** → plugin runs the configured shell command (default: `abtl serve`), waits ~2 seconds, retries health check
-4. **If still not reachable** → shows notice: "Couldn't start the server. Run `abtl serve` manually and check for errors."
+3. **If not reachable** → plugin runs the configured shell command (default: `abtl serve`), then retries health check up to 5 times with 2-second intervals (total ~10 seconds, covering the ~8s cold-start)
+4. **If still not reachable after retries** → shows notice: "Couldn't start the server. Run `abtl serve` manually and check for errors."
 
 The server stays running after Obsidian closes (harmless — it's a lightweight localhost process).
 
@@ -187,7 +190,21 @@ The two packages share nothing except the HTTP contract. Either can be swapped i
 9. Plugin replaces placeholder with callout block
 ```
 
-**The prompt template** (step 5) is the one piece of intelligence in the server — wraps document + query for Claude. Easy to iterate on.
+**The prompt template** (step 5) wraps document + query for Claude. Starter template:
+
+```
+You are an AI assistant embedded in the user's document. The user is writing
+in markdown and has asked you a question inline. Answer based on the document
+context and any tools available to you.
+
+--- DOCUMENT ---
+{document}
+--- END DOCUMENT ---
+
+User asks: {query}
+```
+
+This is the one piece of intelligence in the server — easy to iterate on.
 
 **MCP tool access** (step 7) is the killer feature. Inline queries can reach Slack, Microsoft 365, Confluence, etc. — whatever the user has configured.
 
