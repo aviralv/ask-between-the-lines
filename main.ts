@@ -1,4 +1,4 @@
-import { Editor, Plugin, PluginSettingTab, Setting, App, Notice } from "obsidian";
+import { Editor, Plugin, PluginSettingTab, Setting, App } from "obsidian";
 import { findTrigger, getDocumentWithoutTriggerLine } from "./trigger";
 import { askClaude } from "./claude";
 import { buildPrompt } from "./prompt";
