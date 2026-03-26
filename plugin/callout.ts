@@ -22,12 +22,30 @@ export function formatThinkingCalloutWithQuery(query: string): string {
   return `> [!ai] Thinking... (${query})`;
 }
 
-export function formatResponseCallout(query: string, response: string): string {
+export interface ResponseMetadata {
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+}
+
+export function formatResponseCallout(
+  query: string,
+  response: string,
+  metadata?: ResponseMetadata
+): string {
   const responseLines = response
     .split("\n")
     .map((line) => "> " + line)
     .join("\n");
-  return `> [!ai]- ${query}\n${responseLines}`;
+
+  let callout = `> [!ai]- ${query}\n${responseLines}`;
+
+  if (metadata) {
+    const seconds = (metadata.durationMs / 1000).toFixed(1);
+    callout += `\n>\n> *${metadata.inputTokens} in · ${metadata.outputTokens} out · ${seconds}s*`;
+  }
+
+  return callout;
 }
 
 export function formatErrorCallout(errorMessage: string): string {
