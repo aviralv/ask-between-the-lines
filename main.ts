@@ -1,7 +1,7 @@
 import { Editor, Plugin, PluginSettingTab, Setting, App } from "obsidian";
 import { findTrigger, getDocumentWithoutTriggerLine } from "./trigger";
 import { askClaude } from "./claude";
-import { buildPrompt } from "./prompt";
+import { getSystemPrompt, buildUserMessage } from "./prompt";
 import {
   replaceLine,
   findThinkingCallout,
@@ -14,12 +14,16 @@ interface AbtlSettings {
   claudePath: string;
   timeoutSeconds: number;
   triggerPrefix: string;
+  disallowedTools: string;
 }
+
+const DEFAULT_DISALLOWED_TOOLS = "Bash,Edit,Write,NotebookEdit,Agent,slack_send_message,slack_update_message,teams_send_message,outlook_create_draft,outlook_create_reply_draft,outlook_create_event,outlook_update_event,outlook_cancel_event,outlook_decline_event";
 
 const DEFAULT_SETTINGS: AbtlSettings = {
   claudePath: "claude",
   timeoutSeconds: 120,
   triggerPrefix: ";;",
+  disallowedTools: DEFAULT_DISALLOWED_TOOLS,
 };
 
 export default class AskBetweenTheLines extends Plugin {
@@ -46,16 +50,21 @@ export default class AskBetweenTheLines extends Plugin {
 
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
     const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
-    const prompt = buildPrompt(document, trigger.query);
+    const userMessage = buildUserMessage(document, trigger.query);
 
     replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
 
-    const result = await askClaude(
-      prompt,
+    const result = await askClaude({
+      userMessage,
+      systemPrompt: getSystemPrompt(),
       vaultPath,
-      this.settings.claudePath,
-      this.settings.timeoutSeconds
-    );
+      claudePath: this.settings.claudePath,
+      timeoutSeconds: this.settings.timeoutSeconds,
+      disallowedTools: this.settings.disallowedTools
+        .split(",")
+        .map(t => t.trim())
+        .filter(t => t.length > 0),
+    });
 
     const thinkingLine = findThinkingCallout(editor, trigger.query);
     if (thinkingLine === null) {
@@ -139,6 +148,19 @@ class AbtlSettingTab extends PluginSettingTab {
               this.plugin.settings.triggerPrefix = value;
               await this.plugin.saveSettings();
             }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Disallowed tools")
+      .setDesc("Comma-separated list of tools Claude cannot use. Blocks dangerous write/execute tools by default.")
+      .addTextArea((text) =>
+        text
+          .setPlaceholder(DEFAULT_DISALLOWED_TOOLS)
+          .setValue(this.plugin.settings.disallowedTools)
+          .onChange(async (value) => {
+            this.plugin.settings.disallowedTools = value;
+            await this.plugin.saveSettings();
           })
       );
   }
