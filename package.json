@@ -1,0 +1,27 @@
+{
+  "name": "ask-between-the-lines",
+  "version": "1.0.0",
+  "description": "Jupyter-style inline Claude for markdown. Write prose, trigger AI inline, get responses as callout blocks — with full document context and tool access preserved.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aviralv/ask-between-the-lines.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/aviralv/ask-between-the-lines/issues"
+  },
+  "homepage": "https://github.com/aviralv/ask-between-the-lines#readme",
+  "devDependencies": {
+    "vitest": "^4.1.1"
+  }
+}
