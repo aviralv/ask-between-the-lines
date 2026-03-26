@@ -37,19 +37,27 @@ export function parseClaudeOutput(stdout: string): ClaudeResponse {
   }
 }
 
-export function askClaude(
-  prompt: string,
-  vaultPath: string,
-  claudePath: string,
-  timeoutSeconds: number
-): Promise<ClaudeResponse> {
+export interface AskClaudeOptions {
+  userMessage: string;
+  systemPrompt: string;
+  vaultPath: string;
+  claudePath: string;
+  timeoutSeconds: number;
+  disallowedTools: string[];
+}
+
+export function askClaude(opts: AskClaudeOptions): Promise<ClaudeResponse> {
   return new Promise((resolve) => {
     const { spawn } = require("child_process") as typeof import("child_process");
-    const args = ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions"];
+    const args = ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions",
+      "--system-prompt", opts.systemPrompt];
+    if (opts.disallowedTools.length > 0) {
+      args.push("--disallowedTools", opts.disallowedTools.join(" "));
+    }
 
-    const child = spawn(claudePath, args, {
-      cwd: vaultPath,
-      timeout: timeoutSeconds * 1000,
+    const child = spawn(opts.claudePath, args, {
+      cwd: opts.vaultPath,
+      timeout: opts.timeoutSeconds * 1000,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
@@ -90,7 +98,7 @@ export function askClaude(
       resolve(parseClaudeOutput(stdout));
     });
 
-    child.stdin.write(prompt);
+    child.stdin.write(opts.userMessage);
     child.stdin.end();
   });
 }
