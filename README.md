@@ -31,12 +31,12 @@ The entire document is sent as context. Each query is one-shot — no conversati
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Obsidian community plugins
 2. Open command palette → `BRAT: Add a beta plugin for testing`
-3. Paste: `https://github.com/aviral-vaid/ask-between-the-lines`
+3. Paste: `https://github.com/aviralv/ask-between-the-lines`
 4. Enable "Ask Between the Lines" in Settings → Community Plugins
 
 ## Install Manually
 
-1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/aviral-vaid/ask-between-the-lines/releases)
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/aviralv/ask-between-the-lines/releases)
 2. Create `.obsidian/plugins/ask-between-the-lines/` in your vault
 3. Copy both files into that folder
 4. Enable the plugin in Settings → Community Plugins
