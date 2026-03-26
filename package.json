@@ -1,6 +1,6 @@
 {
   "name": "ask-between-the-lines",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Inline Claude for markdown in Obsidian",
   "main": "main.js",
   "scripts": {
