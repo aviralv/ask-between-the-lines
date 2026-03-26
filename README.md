@@ -48,12 +48,35 @@ The entire document is sent as context. Each query is one-shot — no conversati
 | Claude CLI path | `claude` | Full path to the Claude binary. Set this if Obsidian can't find `claude` on your PATH (common on macOS). |
 | Timeout | `120` | Seconds to wait for a response before timing out. |
 | Trigger prefix | `;;` | Characters that trigger an inline query. |
+| Disallowed tools | *(see below)* | Comma-separated list of tools Claude cannot use. See [Security](#security). |
 
 ## How It Works Under the Hood
 
 The plugin spawns `claude -p` as a subprocess with your vault as the working directory. This means:
 - Any `.mcp.json` in your vault is picked up — Slack, Microsoft 365, and other MCP tools work inline
 - Claude sees your vault's project context
+
+## Security
+
+The entire document is sent as context with each query. If you open an untrusted document (e.g., pasted from the web or shared by someone else), its content could contain instructions that attempt to influence Claude's behavior (prompt injection).
+
+**Mitigations built into the plugin:**
+
+1. **System/user prompt separation** — The plugin's behavioral instructions are passed via `--system-prompt` (privileged position). Document content is sent as a user message. Claude is trained to prioritize system prompts over user content.
+
+2. **Dangerous tools blocked by default** — Write and execute tools are denied via `--disallowedTools`. The default deny list:
+   - Built-in: `Bash`, `Edit`, `Write`, `NotebookEdit`, `Agent`
+   - MCP: `slack_send_message`, `slack_update_message`, `teams_send_message`, `outlook_create_draft`, `outlook_create_reply_draft`, `outlook_create_event`, `outlook_update_event`, `outlook_cancel_event`, `outlook_decline_event`
+
+   Read-only tools (search, list, fetch) remain available so Claude can answer questions using your MCP-connected services.
+
+3. **Customizable** — Edit the "Disallowed tools" setting to add or remove tools. If you trust your documents and want full write access, you can clear the list.
+
+**What this does NOT protect against:**
+- Claude reading sensitive content from your document and including it in responses (the document IS the context — that's the feature)
+- A sufficiently crafted injection that works within read-only tools (e.g., searching Slack for sensitive messages)
+
+**Rule of thumb:** Don't use `;;` queries in documents you wouldn't paste into a Claude conversation directly.
 
 ## Known Limitations
 
