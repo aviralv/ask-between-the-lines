@@ -80,13 +80,24 @@ function parseClaudeOutput(stdout) {
     };
   }
 }
-function askClaude(prompt, vaultPath, claudePath, timeoutSeconds) {
+function askClaude(opts) {
   return new Promise((resolve) => {
     const { spawn } = require("child_process");
-    const args = ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions"];
-    const child = spawn(claudePath, args, {
-      cwd: vaultPath,
-      timeout: timeoutSeconds * 1e3,
+    const args = [
+      "-p",
+      "--output-format",
+      "json",
+      "--permission-mode",
+      "bypassPermissions",
+      "--system-prompt",
+      opts.systemPrompt
+    ];
+    if (opts.disallowedTools.length > 0) {
+      args.push("--disallowedTools", opts.disallowedTools.join(" "));
+    }
+    const child = spawn(opts.claudePath, args, {
+      cwd: opts.vaultPath,
+      timeout: opts.timeoutSeconds * 1e3,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env }
     });
@@ -120,16 +131,20 @@ function askClaude(prompt, vaultPath, claudePath, timeoutSeconds) {
       }
       resolve(parseClaudeOutput(stdout));
     });
-    child.stdin.write(prompt);
+    child.stdin.write(opts.userMessage);
     child.stdin.end();
   });
 }
 
 // prompt.ts
-var SYSTEM_PREFIX = "You are an inline assistant embedded in the user's document. The user asked a question while writing. Answer concisely \u2014 a few sentences, not paragraphs. Match the tone of the document. If the question is simple, the answer should be short.\n\n--- DOCUMENT ---\n";
-var SYSTEM_SUFFIX = "\n--- END DOCUMENT ---\n\n";
-function buildPrompt(document, query) {
-  return SYSTEM_PREFIX + document + SYSTEM_SUFFIX + query;
+var SYSTEM_INSTRUCTION = "You are an inline assistant embedded in the user's document. The user asked a question while writing. Answer concisely \u2014 a few sentences, not paragraphs. Match the tone of the document. If the question is simple, the answer should be short.";
+var DOCUMENT_PREFIX = "\n\n--- DOCUMENT ---\n";
+var DOCUMENT_SUFFIX = "\n--- END DOCUMENT ---\n\n";
+function getSystemPrompt() {
+  return SYSTEM_INSTRUCTION;
+}
+function buildUserMessage(document, query) {
+  return DOCUMENT_PREFIX + document + DOCUMENT_SUFFIX + query;
 }
 
 // callout.ts
@@ -170,10 +185,12 @@ function formatErrorCallout(errorMessage) {
 }
 
 // main.ts
+var DEFAULT_DISALLOWED_TOOLS = "Bash,Edit,Write,NotebookEdit,Agent,slack_send_message,slack_update_message,teams_send_message,outlook_create_draft,outlook_create_reply_draft,outlook_create_event,outlook_update_event,outlook_cancel_event,outlook_decline_event";
 var DEFAULT_SETTINGS = {
   claudePath: "claude",
   timeoutSeconds: 120,
-  triggerPrefix: ";;"
+  triggerPrefix: ";;",
+  disallowedTools: DEFAULT_DISALLOWED_TOOLS
 };
 var AskBetweenTheLines = class extends import_obsidian.Plugin {
   settings = DEFAULT_SETTINGS;
@@ -194,14 +211,16 @@ var AskBetweenTheLines = class extends import_obsidian.Plugin {
     }
     const vaultPath = this.app.vault.adapter.basePath;
     const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
-    const prompt = buildPrompt(document, trigger.query);
+    const userMessage = buildUserMessage(document, trigger.query);
     replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
-    const result = await askClaude(
-      prompt,
+    const result = await askClaude({
+      userMessage,
+      systemPrompt: getSystemPrompt(),
       vaultPath,
-      this.settings.claudePath,
-      this.settings.timeoutSeconds
-    );
+      claudePath: this.settings.claudePath,
+      timeoutSeconds: this.settings.timeoutSeconds,
+      disallowedTools: this.settings.disallowedTools.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+    });
     const thinkingLine = findThinkingCallout(editor, trigger.query);
     if (thinkingLine === null) {
       return;
@@ -257,6 +276,12 @@ var AbtlSettingTab = class extends import_obsidian.PluginSettingTab {
           this.plugin.settings.triggerPrefix = value;
           await this.plugin.saveSettings();
         }
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Disallowed tools").setDesc("Comma-separated list of tools Claude cannot use. Blocks dangerous write/execute tools by default.").addTextArea(
+      (text) => text.setPlaceholder(DEFAULT_DISALLOWED_TOOLS).setValue(this.plugin.settings.disallowedTools).onChange(async (value) => {
+        this.plugin.settings.disallowedTools = value;
+        await this.plugin.saveSettings();
       })
     );
   }
