@@ -1,6 +1,7 @@
-import { Editor, Plugin, PluginSettingTab, Setting, App } from "obsidian";
+import { Editor, Plugin, PluginSettingTab, Setting, App, Notice } from "obsidian";
 import { findTrigger, getDocumentWithoutTriggerLine } from "./trigger";
-import { AbtlClient } from "./client";
+import { askClaude } from "./claude";
+import { buildPrompt } from "./prompt";
 import {
   replaceLine,
   findThinkingCallout,
@@ -10,22 +11,22 @@ import {
 } from "./callout";
 
 interface AbtlSettings {
-  serverUrl: string;
-  startCommand: string;
+  claudePath: string;
+  timeoutSeconds: number;
+  triggerPrefix: string;
 }
 
 const DEFAULT_SETTINGS: AbtlSettings = {
-  serverUrl: "http://localhost:8765",
-  startCommand: "abtl serve",
+  claudePath: "claude",
+  timeoutSeconds: 120,
+  triggerPrefix: ";;",
 };
 
 export default class AskBetweenTheLines extends Plugin {
   settings: AbtlSettings = DEFAULT_SETTINGS;
-  client: AbtlClient | null = null;
 
   async onload() {
     await this.loadSettings();
-    this.client = new AbtlClient(this.settings.serverUrl, this.settings.startCommand);
 
     this.addCommand({
       id: "ask-inline",
@@ -37,32 +38,24 @@ export default class AskBetweenTheLines extends Plugin {
     this.addSettingTab(new AbtlSettingTab(this.app, this));
   }
 
-  async onunload() {}
-
   async handleAsk(editor: Editor) {
-    const trigger = findTrigger(editor);
+    const trigger = findTrigger(editor, this.settings.triggerPrefix);
     if (!trigger) {
       return;
     }
 
-    if (!this.client) {
-      return;
-    }
-
+    const vaultPath = (this.app.vault.adapter as any).basePath as string;
     const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+    const prompt = buildPrompt(document, trigger.query);
 
     replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
 
-    const serverReady = await this.client.ensureServer();
-    if (!serverReady) {
-      const thinkingLine = findThinkingCallout(editor, trigger.query);
-      if (thinkingLine !== null) {
-        replaceLine(editor, thinkingLine, formatErrorCallout("Server not running"));
-      }
-      return;
-    }
-
-    const result = await this.client.ask(document, trigger.query);
+    const result = await askClaude(
+      prompt,
+      vaultPath,
+      this.settings.claudePath,
+      this.settings.timeoutSeconds
+    );
 
     const thinkingLine = findThinkingCallout(editor, trigger.query);
     if (thinkingLine === null) {
@@ -70,7 +63,15 @@ export default class AskBetweenTheLines extends Plugin {
     }
 
     if (result.ok) {
-      replaceLine(editor, thinkingLine, formatResponseCallout(trigger.query, result.text));
+      replaceLine(
+        editor,
+        thinkingLine,
+        formatResponseCallout(trigger.query, result.text, {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          durationMs: result.durationMs,
+        })
+      );
     } else {
       replaceLine(editor, thinkingLine, formatErrorCallout(result.text));
     }
@@ -82,7 +83,6 @@ export default class AskBetweenTheLines extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
-    this.client = new AbtlClient(this.settings.serverUrl, this.settings.startCommand);
   }
 }
 
@@ -99,28 +99,46 @@ class AbtlSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Server URL")
-      .setDesc("URL of the Ask Between the Lines server")
+      .setName("Claude CLI path")
+      .setDesc("Path to the Claude CLI binary (e.g. /usr/local/bin/claude)")
       .addText((text) =>
         text
-          .setPlaceholder("http://localhost:8765")
-          .setValue(this.plugin.settings.serverUrl)
+          .setPlaceholder("claude")
+          .setValue(this.plugin.settings.claudePath)
           .onChange(async (value) => {
-            this.plugin.settings.serverUrl = value;
+            this.plugin.settings.claudePath = value;
             await this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
-      .setName("Start command")
-      .setDesc("Shell command to start the server if not running")
+      .setName("Timeout (seconds)")
+      .setDesc("Maximum time to wait for a response")
       .addText((text) =>
         text
-          .setPlaceholder("abtl serve")
-          .setValue(this.plugin.settings.startCommand)
+          .setPlaceholder("120")
+          .setValue(String(this.plugin.settings.timeoutSeconds))
           .onChange(async (value) => {
-            this.plugin.settings.startCommand = value;
-            await this.plugin.saveSettings();
+            const parsed = parseInt(value, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              this.plugin.settings.timeoutSeconds = parsed;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Trigger prefix")
+      .setDesc("Characters that trigger an inline query (default: ;;)")
+      .addText((text) =>
+        text
+          .setPlaceholder(";;")
+          .setValue(this.plugin.settings.triggerPrefix)
+          .onChange(async (value) => {
+            if (value.length > 0) {
+              this.plugin.settings.triggerPrefix = value;
+              await this.plugin.saveSettings();
+            }
           })
       );
   }
