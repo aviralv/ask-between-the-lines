@@ -5,17 +5,27 @@ export interface TriggerResult {
   lineNumber: number;
 }
 
-export function findTrigger(editor: Editor): TriggerResult | null {
-  const cursor = editor.getCursor();
-  const line = editor.getLine(cursor.line);
+export function extractQuery(line: string, prefix: string): string | null {
   const trimmed = line.trimStart();
 
-  if (!trimmed.startsWith(";;")) {
+  if (!trimmed.startsWith(prefix)) {
     return null;
   }
 
-  const query = trimmed.slice(2).trim();
+  const query = trimmed.slice(prefix.length).trim();
   if (query.length === 0) {
+    return null;
+  }
+
+  return query;
+}
+
+export function findTrigger(editor: Editor, prefix: string = ";;"): TriggerResult | null {
+  const cursor = editor.getCursor();
+  const line = editor.getLine(cursor.line);
+  const query = extractQuery(line, prefix);
+
+  if (query === null) {
     return null;
   }
 
