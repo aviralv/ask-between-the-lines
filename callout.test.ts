@@ -2,7 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   formatResponseCallout,
   formatThinkingCallout,
+  formatErrorCallout,
+  findThinkingCallout,
+  replaceLine,
 } from "./callout";
+
+function mockEditor(lines: string[]) {
+  return {
+    lineCount: () => lines.length,
+    getLine: (i: number) => lines[i],
+  } as any;
+}
 
 describe("formatResponseCallout with metadata", () => {
   it("appends token and duration footer", () => {
@@ -78,5 +88,92 @@ describe("formatResponseCallout with session info", () => {
     expect(result).toContain("*100 in · 20 out · 1.0s*");
     expect(result).not.toContain("session");
     expect(result).not.toContain("continued");
+  });
+});
+
+describe("formatErrorCallout", () => {
+  it("formats a basic error callout", () => {
+    const result = formatErrorCallout("Something went wrong");
+    expect(result).toBe("> [!error]- Ask failed\n> Something went wrong");
+  });
+
+  it("handles empty error message", () => {
+    const result = formatErrorCallout("");
+    expect(result).toBe("> [!error]- Ask failed\n> ");
+  });
+});
+
+describe("findThinkingCallout", () => {
+  it("finds thinking callout matching query", () => {
+    const editor = mockEditor([
+      "Some text",
+      "> [!ai] Thinking... (What is this?)",
+      "More text",
+    ]);
+    expect(findThinkingCallout(editor, "What is this?")).toBe(1);
+  });
+
+  it("finds new session thinking callout", () => {
+    const editor = mockEditor([
+      "> [!ai] Thinking (new)... (my query)",
+    ]);
+    expect(findThinkingCallout(editor, "my query")).toBe(0);
+  });
+
+  it("finds continued session thinking callout", () => {
+    const editor = mockEditor([
+      "> [!ai] Thinking (cont'd)... (my query)",
+    ]);
+    expect(findThinkingCallout(editor, "my query")).toBe(0);
+  });
+
+  it("returns null when no match", () => {
+    const editor = mockEditor(["No callouts here"]);
+    expect(findThinkingCallout(editor, "missing")).toBeNull();
+  });
+
+  it("returns first match when multiple exist", () => {
+    const editor = mockEditor([
+      "> [!ai] Thinking... (same query)",
+      "text",
+      "> [!ai] Thinking... (same query)",
+    ]);
+    expect(findThinkingCallout(editor, "same query")).toBe(0);
+  });
+});
+
+describe("replaceLine", () => {
+  it("replaces a line at the given position", () => {
+    let replaced: { from: any; to: any; text: string } | null = null;
+    const editor = {
+      getLine: (i: number) => ["first", "second", "third"][i],
+      replaceRange: (text: string, from: any, to: any) => {
+        replaced = { from, to, text };
+      },
+    } as any;
+
+    replaceLine(editor, 1, "new content");
+    expect(replaced).toEqual({
+      from: { line: 1, ch: 0 },
+      to: { line: 1, ch: 6 },
+      text: "new content",
+    });
+  });
+
+  it("handles empty line replacement", () => {
+    let replaced: any = null;
+    const editor = {
+      getLine: () => "",
+      replaceRange: (text: string, from: any, to: any) => {
+        replaced = { from, to, text };
+      },
+    } as any;
+
+    replaceLine(editor, 0, "inserted");
+    expect(replaced).toEqual({
+      from: { line: 0, ch: 0 },
+      to: { line: 0, ch: 0 },
+      text: "inserted",
+    });
   });
 });
