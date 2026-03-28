@@ -1,0 +1,4 @@
+.callout[data-callout="ai"] {
+  --callout-icon: lucide-lightbulb;
+  --callout-color: var(--interactive-accent-rgb);
+}
