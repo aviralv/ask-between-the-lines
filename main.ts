@@ -1,5 +1,5 @@
 import { Editor, Plugin, PluginSettingTab, Setting, App } from "obsidian";
-import { findTrigger, getDocumentWithoutTriggerLine } from "./trigger";
+import { findTrigger, getDocumentContext } from "./trigger";
 import { askClaude } from "./claude";
 import { getSystemPrompt, buildUserMessage, stripAiCallouts } from "./prompt";
 import {
@@ -98,7 +98,7 @@ export default class AskBetweenTheLines extends Plugin {
     }
 
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
-    let document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+    let document = getDocumentContext(editor, trigger.lineNumber);
     if (!this.settings.includeAiCallouts) {
       document = stripAiCallouts(document);
     }
