@@ -6,6 +6,30 @@ const SYSTEM_INSTRUCTION =
 const DOCUMENT_PREFIX = "\n\n--- DOCUMENT ---\n";
 const DOCUMENT_SUFFIX = "\n--- END DOCUMENT ---\n\n";
 
+export function stripAiCallouts(document: string): string {
+  const lines = document.split("\n");
+  const result: string[] = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    if (/^> \[!(ai|error)\]/.test(line)) {
+      skipping = true;
+      continue;
+    }
+
+    if (skipping) {
+      if (line.startsWith("> ") || line === ">") {
+        continue;
+      }
+      skipping = false;
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
 export function getSystemPrompt(): string {
   return SYSTEM_INSTRUCTION;
 }
