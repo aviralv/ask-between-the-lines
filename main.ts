@@ -39,6 +39,7 @@ export default class AskBetweenTheLines extends Plugin {
     await this.loadSettings();
 
     this.statusBarEl = this.addStatusBarItem();
+    this.statusBarEl.onClickEvent(() => this.toggleMode());
     this.updateStatusBar();
 
     this.addCommand({
@@ -76,7 +77,6 @@ export default class AskBetweenTheLines extends Plugin {
   updateStatusBar() {
     if (!this.statusBarEl) return;
     this.statusBarEl.setText(this.mode === "one-shot" ? "One-shot" : "Session");
-    this.statusBarEl.onClickEvent(() => this.toggleMode());
   }
 
   private getActiveFilePath(): string | null {
