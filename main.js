@@ -68,7 +68,8 @@ function parseClaudeOutput(stdout) {
       text: parsed.result,
       inputTokens: parsed.usage?.input_tokens ?? 0,
       outputTokens: parsed.usage?.output_tokens ?? 0,
-      durationMs: parsed.duration_ms ?? 0
+      durationMs: parsed.duration_ms ?? 0,
+      sessionId: parsed.session_id ?? ""
     };
   } catch {
     return {
@@ -76,7 +77,8 @@ function parseClaudeOutput(stdout) {
       text: "Failed to parse Claude response: " + stdout.slice(0, 200),
       inputTokens: 0,
       outputTokens: 0,
-      durationMs: 0
+      durationMs: 0,
+      sessionId: ""
     };
   }
 }
@@ -94,6 +96,9 @@ function askClaude(opts) {
     ];
     if (opts.disallowedTools.length > 0) {
       args.push("--disallowedTools", opts.disallowedTools.join(" "));
+    }
+    if (opts.resumeSessionId) {
+      args.push("--resume", opts.resumeSessionId);
     }
     const child = spawn(opts.claudePath, args, {
       cwd: opts.vaultPath,
@@ -115,7 +120,8 @@ function askClaude(opts) {
         text: error.message,
         inputTokens: 0,
         outputTokens: 0,
-        durationMs: 0
+        durationMs: 0,
+        sessionId: ""
       });
     });
     child.on("close", (code) => {
@@ -125,7 +131,8 @@ function askClaude(opts) {
           text: stderr || `claude exited with code ${code}`,
           inputTokens: 0,
           outputTokens: 0,
-          durationMs: 0
+          durationMs: 0,
+          sessionId: ""
         });
         return;
       }
@@ -140,6 +147,25 @@ function askClaude(opts) {
 var SYSTEM_INSTRUCTION = "You are an inline assistant embedded in the user's document. The user asked a question while writing. Answer concisely \u2014 a few sentences, not paragraphs. Match the tone of the document. If the question is simple, the answer should be short.";
 var DOCUMENT_PREFIX = "\n\n--- DOCUMENT ---\n";
 var DOCUMENT_SUFFIX = "\n--- END DOCUMENT ---\n\n";
+function stripAiCallouts(document) {
+  const lines = document.split("\n");
+  const result = [];
+  let skipping = false;
+  for (const line of lines) {
+    if (/^> \[!(ai|error)\]/.test(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping) {
+      if (line.startsWith("> ") || line === ">") {
+        continue;
+      }
+      skipping = false;
+    }
+    result.push(line);
+  }
+  return result.join("\n");
+}
 function getSystemPrompt() {
   return SYSTEM_INSTRUCTION;
 }
@@ -155,27 +181,39 @@ function replaceLine(editor, lineNumber, text) {
   editor.replaceRange(text, from, to);
 }
 function findThinkingCallout(editor, query) {
-  const marker = formatThinkingCalloutWithQuery(query);
   const totalLines = editor.lineCount();
   for (let i = 0; i < totalLines; i++) {
-    if (editor.getLine(i) === marker) {
+    const line = editor.getLine(i);
+    if (line.startsWith("> [!ai] Thinking") && line.endsWith(`(${query})`)) {
       return i;
     }
   }
   return null;
 }
-function formatThinkingCalloutWithQuery(query) {
+function formatThinkingCallout(query, sessionStatus) {
+  if (sessionStatus === "new") {
+    return `> [!ai] Thinking (new)... (${query})`;
+  }
+  if (sessionStatus === "continued") {
+    return `> [!ai] Thinking (cont'd)... (${query})`;
+  }
   return `> [!ai] Thinking... (${query})`;
 }
-function formatResponseCallout(query, response, metadata) {
+function formatResponseCallout(query, response, metadata, sessionStatus) {
   const responseLines = response.split("\n").map((line) => "> " + line).join("\n");
   let callout = `> [!ai]- ${query}
 ${responseLines}`;
   if (metadata) {
     const seconds = (metadata.durationMs / 1e3).toFixed(1);
+    let footer = `${metadata.inputTokens} in \xB7 ${metadata.outputTokens} out \xB7 ${seconds}s`;
+    if (sessionStatus === "new") {
+      footer += " \xB7 new session";
+    } else if (sessionStatus === "continued") {
+      footer += " \xB7 continued";
+    }
     callout += `
 >
-> *${metadata.inputTokens} in \xB7 ${metadata.outputTokens} out \xB7 ${seconds}s*`;
+> *${footer}*`;
   }
   return callout;
 }
@@ -190,19 +228,59 @@ var DEFAULT_SETTINGS = {
   claudePath: "claude",
   timeoutSeconds: 120,
   triggerPrefix: ";;",
-  disallowedTools: DEFAULT_DISALLOWED_TOOLS
+  disallowedTools: DEFAULT_DISALLOWED_TOOLS,
+  includeAiCallouts: false
 };
 var AskBetweenTheLines = class extends import_obsidian.Plugin {
   settings = DEFAULT_SETTINGS;
+  mode = "one-shot";
+  sessions = /* @__PURE__ */ new Map();
+  statusBarEl = null;
   async onload() {
     await this.loadSettings();
+    this.statusBarEl = this.addStatusBarItem();
+    this.statusBarEl.onClickEvent(() => this.toggleMode());
+    this.updateStatusBar();
     this.addCommand({
       id: "ask-inline",
       name: "Ask inline (send ;; query)",
       editorCallback: (editor) => this.handleAsk(editor),
       hotkeys: [{ modifiers: ["Shift"], key: "Enter" }]
     });
+    this.addCommand({
+      id: "toggle-mode",
+      name: "Toggle ask mode (one-shot / session)",
+      callback: () => this.toggleMode()
+    });
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.clearCurrentSession();
+      })
+    );
     this.addSettingTab(new AbtlSettingTab(this.app, this));
+  }
+  toggleMode() {
+    if (this.mode === "one-shot") {
+      this.mode = "session";
+    } else {
+      this.clearCurrentSession();
+      this.mode = "one-shot";
+    }
+    this.updateStatusBar();
+  }
+  updateStatusBar() {
+    if (!this.statusBarEl) return;
+    this.statusBarEl.setText(this.mode === "one-shot" ? "One-shot" : "Session");
+  }
+  getActiveFilePath() {
+    const file = this.app.workspace.getActiveFile();
+    return file?.path ?? null;
+  }
+  clearCurrentSession() {
+    const filePath = this.getActiveFilePath();
+    if (filePath) {
+      this.sessions.delete(filePath);
+    }
   }
   async handleAsk(editor) {
     const trigger = findTrigger(editor, this.settings.triggerPrefix);
@@ -210,33 +288,62 @@ var AskBetweenTheLines = class extends import_obsidian.Plugin {
       return;
     }
     const vaultPath = this.app.vault.adapter.basePath;
-    const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+    let document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+    if (!this.settings.includeAiCallouts) {
+      document = stripAiCallouts(document);
+    }
     const userMessage = buildUserMessage(document, trigger.query);
-    replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
+    const filePath = this.getActiveFilePath();
+    const isSessionMode = this.mode === "session";
+    const existingSession = filePath ? this.sessions.get(filePath) : void 0;
+    let sessionStatus;
+    if (isSessionMode) {
+      sessionStatus = existingSession ? "continued" : "new";
+    }
+    replaceLine(editor, trigger.lineNumber, formatThinkingCallout(trigger.query, sessionStatus));
+    const disallowedTools = this.settings.disallowedTools.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
     const result = await askClaude({
       userMessage,
       systemPrompt: getSystemPrompt(),
       vaultPath,
       claudePath: this.settings.claudePath,
       timeoutSeconds: this.settings.timeoutSeconds,
-      disallowedTools: this.settings.disallowedTools.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+      disallowedTools,
+      resumeSessionId: existingSession?.sessionId
     });
+    let finalResult = result;
+    let finalSessionStatus = sessionStatus;
+    if (!result.ok && existingSession && isSessionMode) {
+      this.sessions.delete(filePath);
+      finalSessionStatus = "new";
+      finalResult = await askClaude({
+        userMessage,
+        systemPrompt: getSystemPrompt(),
+        vaultPath,
+        claudePath: this.settings.claudePath,
+        timeoutSeconds: this.settings.timeoutSeconds,
+        disallowedTools
+      });
+    }
+    if (isSessionMode && filePath && finalResult.ok && finalResult.sessionId) {
+      this.sessions.set(filePath, { sessionId: finalResult.sessionId });
+    }
     const thinkingLine = findThinkingCallout(editor, trigger.query);
     if (thinkingLine === null) {
       return;
     }
-    if (result.ok) {
+    if (finalResult.ok) {
       replaceLine(
         editor,
         thinkingLine,
-        formatResponseCallout(trigger.query, result.text, {
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
-          durationMs: result.durationMs
-        })
+        formatResponseCallout(trigger.query, finalResult.text, {
+          inputTokens: finalResult.inputTokens,
+          outputTokens: finalResult.outputTokens,
+          durationMs: finalResult.durationMs
+        }, finalSessionStatus)
       );
     } else {
-      replaceLine(editor, thinkingLine, formatErrorCallout(result.text));
+      replaceLine(editor, thinkingLine, formatErrorCallout(finalResult.text));
     }
   }
   async loadSettings() {
@@ -281,6 +388,12 @@ var AbtlSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("Disallowed tools").setDesc("Comma-separated list of tools Claude cannot use. Blocks dangerous write/execute tools by default.").addTextArea(
       (text) => text.setPlaceholder(DEFAULT_DISALLOWED_TOOLS).setValue(this.plugin.settings.disallowedTools).onChange(async (value) => {
         this.plugin.settings.disallowedTools = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Include AI responses in context").setDesc("When enabled, previous AI callout blocks are included in the document context sent to Claude. When disabled (default), they are stripped.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.includeAiCallouts).onChange(async (value) => {
+        this.plugin.settings.includeAiCallouts = value;
         await this.plugin.saveSettings();
       })
     );
