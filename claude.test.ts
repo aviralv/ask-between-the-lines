@@ -37,6 +37,22 @@ describe("parseClaudeOutput", () => {
     expect(result.outputTokens).toBe(0);
     expect(result.durationMs).toBe(0);
   });
+
+  it("handles empty string stdout", () => {
+    const result = parseClaudeOutput("");
+    expect(result.ok).toBe(false);
+    expect(result.text).toContain("Failed to parse");
+  });
+
+  it("handles null result field in JSON", () => {
+    const json = JSON.stringify({
+      type: "result",
+      result: null,
+    });
+    const result = parseClaudeOutput(json);
+    expect(result.ok).toBe(true);
+    expect(result.text).toBeNull();
+  });
 });
 
 describe("parseClaudeOutput with sessionId", () => {
