@@ -4,11 +4,13 @@ export interface ClaudeResponse {
   inputTokens: number;
   outputTokens: number;
   durationMs: number;
+  sessionId: string;
 }
 
 interface ClaudeJsonOutput {
   type: string;
   result: string;
+  session_id?: string;
   usage?: {
     input_tokens: number;
     output_tokens: number;
@@ -25,6 +27,7 @@ export function parseClaudeOutput(stdout: string): ClaudeResponse {
       inputTokens: parsed.usage?.input_tokens ?? 0,
       outputTokens: parsed.usage?.output_tokens ?? 0,
       durationMs: parsed.duration_ms ?? 0,
+      sessionId: parsed.session_id ?? "",
     };
   } catch {
     return {
@@ -33,6 +36,7 @@ export function parseClaudeOutput(stdout: string): ClaudeResponse {
       inputTokens: 0,
       outputTokens: 0,
       durationMs: 0,
+      sessionId: "",
     };
   }
 }
@@ -44,6 +48,7 @@ export interface AskClaudeOptions {
   claudePath: string;
   timeoutSeconds: number;
   disallowedTools: string[];
+  resumeSessionId?: string;
 }
 
 export function askClaude(opts: AskClaudeOptions): Promise<ClaudeResponse> {
@@ -53,6 +58,9 @@ export function askClaude(opts: AskClaudeOptions): Promise<ClaudeResponse> {
       "--system-prompt", opts.systemPrompt];
     if (opts.disallowedTools.length > 0) {
       args.push("--disallowedTools", opts.disallowedTools.join(" "));
+    }
+    if (opts.resumeSessionId) {
+      args.push("--resume", opts.resumeSessionId);
     }
 
     const child = spawn(opts.claudePath, args, {
@@ -80,6 +88,7 @@ export function askClaude(opts: AskClaudeOptions): Promise<ClaudeResponse> {
         inputTokens: 0,
         outputTokens: 0,
         durationMs: 0,
+        sessionId: "",
       });
     });
 
@@ -91,6 +100,7 @@ export function askClaude(opts: AskClaudeOptions): Promise<ClaudeResponse> {
           inputTokens: 0,
           outputTokens: 0,
           durationMs: 0,
+          sessionId: "",
         });
         return;
       }
