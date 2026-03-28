@@ -1,13 +1,14 @@
 import { Editor, Plugin, PluginSettingTab, Setting, App } from "obsidian";
 import { findTrigger, getDocumentWithoutTriggerLine } from "./trigger";
 import { askClaude } from "./claude";
-import { getSystemPrompt, buildUserMessage } from "./prompt";
+import { getSystemPrompt, buildUserMessage, stripAiCallouts } from "./prompt";
 import {
   replaceLine,
   findThinkingCallout,
-  formatThinkingCalloutWithQuery,
+  formatThinkingCallout,
   formatResponseCallout,
   formatErrorCallout,
+  SessionStatus,
 } from "./callout";
 
 interface AbtlSettings {
@@ -15,6 +16,7 @@ interface AbtlSettings {
   timeoutSeconds: number;
   triggerPrefix: string;
   disallowedTools: string;
+  includeAiCallouts: boolean;
 }
 
 const DEFAULT_DISALLOWED_TOOLS = "Bash,Edit,Write,NotebookEdit,Agent,slack_send_message,slack_update_message,teams_send_message,outlook_create_draft,outlook_create_reply_draft,outlook_create_event,outlook_update_event,outlook_cancel_event,outlook_decline_event";
@@ -24,13 +26,20 @@ const DEFAULT_SETTINGS: AbtlSettings = {
   timeoutSeconds: 120,
   triggerPrefix: ";;",
   disallowedTools: DEFAULT_DISALLOWED_TOOLS,
+  includeAiCallouts: false,
 };
 
 export default class AskBetweenTheLines extends Plugin {
   settings: AbtlSettings = DEFAULT_SETTINGS;
+  mode: "one-shot" | "session" = "one-shot";
+  sessions: Map<string, { sessionId: string }> = new Map();
+  statusBarEl: HTMLElement | null = null;
 
   async onload() {
     await this.loadSettings();
+
+    this.statusBarEl = this.addStatusBarItem();
+    this.updateStatusBar();
 
     this.addCommand({
       id: "ask-inline",
@@ -39,7 +48,47 @@ export default class AskBetweenTheLines extends Plugin {
       hotkeys: [{ modifiers: ["Shift"], key: "Enter" }],
     });
 
+    this.addCommand({
+      id: "toggle-mode",
+      name: "Toggle ask mode (one-shot / session)",
+      callback: () => this.toggleMode(),
+    });
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.clearCurrentSession();
+      })
+    );
+
     this.addSettingTab(new AbtlSettingTab(this.app, this));
+  }
+
+  toggleMode() {
+    if (this.mode === "one-shot") {
+      this.mode = "session";
+    } else {
+      this.clearCurrentSession();
+      this.mode = "one-shot";
+    }
+    this.updateStatusBar();
+  }
+
+  updateStatusBar() {
+    if (!this.statusBarEl) return;
+    this.statusBarEl.setText(this.mode === "one-shot" ? "One-shot" : "Session");
+    this.statusBarEl.onClickEvent(() => this.toggleMode());
+  }
+
+  private getActiveFilePath(): string | null {
+    const file = this.app.workspace.getActiveFile();
+    return file?.path ?? null;
+  }
+
+  private clearCurrentSession() {
+    const filePath = this.getActiveFilePath();
+    if (filePath) {
+      this.sessions.delete(filePath);
+    }
   }
 
   async handleAsk(editor: Editor) {
@@ -49,10 +98,27 @@ export default class AskBetweenTheLines extends Plugin {
     }
 
     const vaultPath = (this.app.vault.adapter as any).basePath as string;
-    const document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+    let document = getDocumentWithoutTriggerLine(editor, trigger.lineNumber);
+    if (!this.settings.includeAiCallouts) {
+      document = stripAiCallouts(document);
+    }
     const userMessage = buildUserMessage(document, trigger.query);
 
-    replaceLine(editor, trigger.lineNumber, formatThinkingCalloutWithQuery(trigger.query));
+    const filePath = this.getActiveFilePath();
+    const isSessionMode = this.mode === "session";
+    const existingSession = filePath ? this.sessions.get(filePath) : undefined;
+
+    let sessionStatus: SessionStatus | undefined;
+    if (isSessionMode) {
+      sessionStatus = existingSession ? "continued" : "new";
+    }
+
+    replaceLine(editor, trigger.lineNumber, formatThinkingCallout(trigger.query, sessionStatus));
+
+    const disallowedTools = this.settings.disallowedTools
+      .split(",")
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
 
     const result = await askClaude({
       userMessage,
@@ -60,29 +126,47 @@ export default class AskBetweenTheLines extends Plugin {
       vaultPath,
       claudePath: this.settings.claudePath,
       timeoutSeconds: this.settings.timeoutSeconds,
-      disallowedTools: this.settings.disallowedTools
-        .split(",")
-        .map(t => t.trim())
-        .filter(t => t.length > 0),
+      disallowedTools,
+      resumeSessionId: existingSession?.sessionId,
     });
+
+    let finalResult = result;
+    let finalSessionStatus = sessionStatus;
+
+    if (!result.ok && existingSession && isSessionMode) {
+      this.sessions.delete(filePath!);
+      finalSessionStatus = "new";
+      finalResult = await askClaude({
+        userMessage,
+        systemPrompt: getSystemPrompt(),
+        vaultPath,
+        claudePath: this.settings.claudePath,
+        timeoutSeconds: this.settings.timeoutSeconds,
+        disallowedTools,
+      });
+    }
+
+    if (isSessionMode && filePath && finalResult.ok && finalResult.sessionId) {
+      this.sessions.set(filePath, { sessionId: finalResult.sessionId });
+    }
 
     const thinkingLine = findThinkingCallout(editor, trigger.query);
     if (thinkingLine === null) {
       return;
     }
 
-    if (result.ok) {
+    if (finalResult.ok) {
       replaceLine(
         editor,
         thinkingLine,
-        formatResponseCallout(trigger.query, result.text, {
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
-          durationMs: result.durationMs,
-        })
+        formatResponseCallout(trigger.query, finalResult.text, {
+          inputTokens: finalResult.inputTokens,
+          outputTokens: finalResult.outputTokens,
+          durationMs: finalResult.durationMs,
+        }, finalSessionStatus)
       );
     } else {
-      replaceLine(editor, thinkingLine, formatErrorCallout(result.text));
+      replaceLine(editor, thinkingLine, formatErrorCallout(finalResult.text));
     }
   }
 
@@ -160,6 +244,18 @@ class AbtlSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.disallowedTools)
           .onChange(async (value) => {
             this.plugin.settings.disallowedTools = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Include AI responses in context")
+      .setDesc("When enabled, previous AI callout blocks are included in the document context sent to Claude. When disabled (default), they are stripped.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.includeAiCallouts)
+          .onChange(async (value) => {
+            this.plugin.settings.includeAiCallouts = value;
             await this.plugin.saveSettings();
           })
       );
