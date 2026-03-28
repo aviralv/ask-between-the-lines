@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { formatResponseCallout } from "./callout";
+import {
+  formatResponseCallout,
+  formatThinkingCallout,
+} from "./callout";
 
 describe("formatResponseCallout with metadata", () => {
   it("appends token and duration footer", () => {
@@ -27,5 +30,53 @@ describe("formatResponseCallout with metadata", () => {
       durationMs: 500,
     });
     expect(result).toContain("0.5s");
+  });
+});
+
+describe("formatThinkingCallout", () => {
+  it("formats one-shot thinking callout (no session info)", () => {
+    const result = formatThinkingCallout("What is this?");
+    expect(result).toBe("> [!ai] Thinking... (What is this?)");
+  });
+
+  it("formats new session thinking callout", () => {
+    const result = formatThinkingCallout("What is this?", "new");
+    expect(result).toBe("> [!ai] Thinking (new)... (What is this?)");
+  });
+
+  it("formats continued session thinking callout", () => {
+    const result = formatThinkingCallout("What is this?", "continued");
+    expect(result).toBe("> [!ai] Thinking (cont'd)... (What is this?)");
+  });
+});
+
+describe("formatResponseCallout with session info", () => {
+  it("appends 'new session' to footer", () => {
+    const result = formatResponseCallout("Q", "A", {
+      inputTokens: 100,
+      outputTokens: 20,
+      durationMs: 1000,
+    }, "new");
+    expect(result).toContain("*100 in · 20 out · 1.0s · new session*");
+  });
+
+  it("appends 'continued' to footer", () => {
+    const result = formatResponseCallout("Q", "A", {
+      inputTokens: 100,
+      outputTokens: 20,
+      durationMs: 1000,
+    }, "continued");
+    expect(result).toContain("*100 in · 20 out · 1.0s · continued*");
+  });
+
+  it("no session suffix for one-shot (undefined)", () => {
+    const result = formatResponseCallout("Q", "A", {
+      inputTokens: 100,
+      outputTokens: 20,
+      durationMs: 1000,
+    });
+    expect(result).toContain("*100 in · 20 out · 1.0s*");
+    expect(result).not.toContain("session");
+    expect(result).not.toContain("continued");
   });
 });
