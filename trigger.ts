@@ -47,3 +47,41 @@ export function getDocumentWithoutTriggerLine(editor: Editor, triggerLine: numbe
 
   return lines.join("\n");
 }
+
+export function getDocumentContext(editor: Editor, triggerLine: number): string {
+  const totalLines = editor.lineCount();
+  const selection = editor.getSelection();
+  const hasSelection = selection.length > 0;
+
+  let selectionRange: { startLine: number; endLine: number } | null = null;
+  if (hasSelection) {
+    const selections = editor.listSelections();
+    if (selections.length > 0) {
+      const sel = selections[0];
+      selectionRange = {
+        startLine: Math.min(sel.anchor.line, sel.head.line),
+        endLine: Math.max(sel.anchor.line, sel.head.line),
+      };
+    }
+  }
+
+  const lines: string[] = [];
+  for (let i = 0; i < totalLines; i++) {
+    if (i === triggerLine) {
+      lines.push("<<< CURSOR >>>");
+      continue;
+    }
+
+    if (selectionRange && i === selectionRange.startLine) {
+      lines.push("<<< SELECTION START >>>");
+    }
+
+    lines.push(editor.getLine(i));
+
+    if (selectionRange && i === selectionRange.endLine) {
+      lines.push("<<< SELECTION END >>>");
+    }
+  }
+
+  return lines.join("\n");
+}
