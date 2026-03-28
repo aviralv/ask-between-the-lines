@@ -1,7 +1,7 @@
 {
   "id": "ask-between-the-lines",
   "name": "Ask Between the Lines",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "minAppVersion": "1.4.0",
   "description": "Inline Claude for markdown — ask questions with ;; and get AI responses as callout blocks",
   "author": "Aviral Vaid",
