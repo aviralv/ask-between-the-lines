@@ -6,33 +6,6 @@ function mockEditor(lines: string[], cursorLine: number = 0) {
     getCursor: () => ({ line: cursorLine }),
     getLine: (i: number) => lines[i],
     lineCount: () => lines.length,
-    getSelection: () => "",
-    listSelections: () => [{ anchor: { line: cursorLine, ch: 0 }, head: { line: cursorLine, ch: 0 } }],
-  } as any;
-}
-
-function mockEditorWithSelection(
-  lines: string[],
-  selection: { anchor: { line: number; ch: number }; head: { line: number; ch: number } },
-  cursorLine: number = 0
-) {
-  return {
-    getCursor: () => ({ line: cursorLine }),
-    getLine: (i: number) => lines[i],
-    lineCount: () => lines.length,
-    getSelection: () => {
-      if (selection.anchor.line === selection.head.line && selection.anchor.ch === selection.head.ch) {
-        return "";
-      }
-      const startLine = Math.min(selection.anchor.line, selection.head.line);
-      const endLine = Math.max(selection.anchor.line, selection.head.line);
-      const selected: string[] = [];
-      for (let i = startLine; i <= endLine; i++) {
-        selected.push(lines[i]);
-      }
-      return selected.join("\n");
-    },
-    listSelections: () => [selection],
   } as any;
 }
 
@@ -119,54 +92,19 @@ describe("getDocumentWithoutTriggerLine", () => {
 });
 
 describe("getDocumentContext", () => {
-  it("inserts cursor marker at trigger line when no selection", () => {
+  it("inserts cursor marker at trigger line", () => {
     const editor = mockEditor(["line 0", ";;question", "line 2"]);
     const result = getDocumentContext(editor, 1);
     expect(result).toBe("line 0\n<<< CURSOR >>>\nline 2");
   });
 
-  it("inserts selection markers around selected text", () => {
-    const editor = mockEditorWithSelection(
-      ["paragraph one", "paragraph two", ";;question", "paragraph three"],
-      { anchor: { line: 1, ch: 0 }, head: { line: 1, ch: 13 } },
-      2
-    );
-    const result = getDocumentContext(editor, 2);
-    expect(result).toContain("<<< SELECTION START >>>");
-    expect(result).toContain("paragraph two");
-    expect(result).toContain("<<< SELECTION END >>>");
-    expect(result).toContain("<<< CURSOR >>>");
-    expect(result).not.toContain(";;question");
-  });
-
-  it("handles selection spanning multiple lines", () => {
-    const editor = mockEditorWithSelection(
-      ["line 0", "line 1", "line 2", ";;question"],
-      { anchor: { line: 0, ch: 0 }, head: { line: 1, ch: 6 } },
-      3
-    );
-    const result = getDocumentContext(editor, 3);
-    expect(result).toContain("<<< SELECTION START >>>\nline 0\nline 1\n<<< SELECTION END >>>");
-  });
-
-  it("returns document with cursor marker when selection is empty", () => {
-    const editor = mockEditorWithSelection(
-      ["line 0", ";;question", "line 2"],
-      { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 5 } },
-      1
-    );
-    const result = getDocumentContext(editor, 1);
-    expect(result).toBe("line 0\n<<< CURSOR >>>\nline 2");
-    expect(result).not.toContain("SELECTION");
-  });
-
-  it("handles trigger on first line with no selection", () => {
+  it("handles trigger on first line", () => {
     const editor = mockEditor([";;question", "line 1"]);
     const result = getDocumentContext(editor, 0);
     expect(result).toBe("<<< CURSOR >>>\nline 1");
   });
 
-  it("handles trigger on last line with no selection", () => {
+  it("handles trigger on last line", () => {
     const editor = mockEditor(["line 0", ";;question"]);
     const result = getDocumentContext(editor, 1);
     expect(result).toBe("line 0\n<<< CURSOR >>>");

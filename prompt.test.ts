@@ -11,10 +11,9 @@ describe("getSystemPrompt", () => {
     expect(result).toContain("inline assistant");
   });
 
-  it("contains cursor/selection marker guidance", () => {
+  it("contains cursor marker guidance", () => {
     const result = getSystemPrompt();
     expect(result).toContain("CURSOR");
-    expect(result).toContain("SELECTION");
   });
 
   it("does not contain document markers", () => {

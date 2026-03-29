@@ -2,9 +2,8 @@ const SYSTEM_INSTRUCTION =
   "You are an inline assistant embedded in the user's document. The user asked " +
   "a question while writing. Answer concisely — a few sentences, not paragraphs. " +
   "Match the tone of the document. If the question is simple, the answer should be short. " +
-  "The document may contain <<< CURSOR >>> showing where the user is writing, " +
-  "and <<< SELECTION START >>>/<<< SELECTION END >>> marking selected text. " +
-  "Use these to understand what part of the document the question refers to.";
+  "The document contains <<< CURSOR >>> showing where the user is writing. " +
+  "Use this to understand what part of the document the question refers to.";
 
 const DOCUMENT_PREFIX = "\n\n--- DOCUMENT ---\n";
 const DOCUMENT_SUFFIX = "\n--- END DOCUMENT ---\n\n";
